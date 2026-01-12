@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Berat Material - Penjumlahan</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f0f4f7;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            margin: auto;
+        }
+        h2 {
+            text-align: center;
+        }
+        label { display:block; margin-top:10px; }
+        select, input { width:100%; padding:8px; border-radius:8px; border:1px solid #bbb; margin-top:6px; }
+        button { padding:10px 14px; border-radius:8px; border:none; cursor:pointer; background:#0077cc; color:white; }
+        table { width:100%; border-collapse:collapse; margin-top:12px; }
+        th, td { border:1px solid #ddd; padding:8px; text-align:center; }
+        th { background:#f7fbff; }
+        .actions { display:flex; gap:10px; margin-top:12px; }
+        #summary { margin-top:12px; padding:12px; background:#e8f4ff; border-radius:8px; }
+        .small { font-size:13px; color:#555; }
+        .remove-btn { background:#e74c3c; }
+        @media (max-width: 700px) {
+            .container { padding:12px }
+            table, thead, tbody, th, td, tr { display:block; }
+            thead { display:none; }
+            td { border:none; position:relative; padding-left:50%; text-align:left; }
+            td::before { position:absolute; left:12px; width:45%; white-space:nowrap; }
+            td:nth-of-type(1)::before{content: "#"}
+            td:nth-of-type(2)::before{content: "Material"}
+            td:nth-of-type(3)::before{content: "Parameter"}
+            td:nth-of-type(4)::before{content: "Panjang / Vol"}
+            td:nth-of-type(5)::before{content: "Berat (kg)"}
+            td:nth-of-type(6)::before{content: "Aksi"}
+        }
+        /* dark mode */
+        .dark-mode { background:#121212 !important; color:#e6e6e6 !important; }
+        .dark-mode .container { background:#1f1f1f !important; box-shadow:none }
+        .dark-toggle { position:fixed; top:18px; right:18px; padding:8px 12px; background:#0077cc; color:white; border-radius:8px; border:none; cursor:pointer }
+    </style>
+</head>
+<body>
+    <button class="dark-toggle" onclick="toggleDarkMode()">Dark Mode</button>
+    <div class="container">
+        <h2>Kalkulator Penjumlahan Berat Material</h2>
+        <p class="small">Tambahkan beberapa baris material, klik <b>Hitung Semua</b> untuk menjumlahkan berat tiap baris dan total keseluruhan.</p>
+
+        <div class="actions">
+            <button onclick="addRow()">➕ Tambah Baris</button>
+            <button onclick="calculateAll()">🔢 Hitung Semua</button>
+            <button onclick="clearTable()" style="background:#6c757d">🗑️ Kosongkan</button>
+        </div>
+
+        <table id="tableItems">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Material</th>
+                    <th>Parameter</th>
+                    <th>Panjang / Volume</th>
+                    <th>Berat (kg)</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <div id="summary">
+            <div><b>Total Berat Semua Material:</b> <span id="totalAll">0</span> kg</div>
+            <div style="margin-top:8px"><b>Ringkasan per Jenis:</b></div>
+            <ul id="breakdown"></ul>
+        </div>
+
+        <canvas id="chartBreakdown" style="margin-top:18px; width:100%; height:280px"></canvas>
+
+    </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Helper constants
+const beratJenis = {
+    besi:7850,
+    beton:2400,
+    kayu:600,
+    air:1000,
+    aluminium:2700,
+    stainless:8000,
+    tanah:1600,
+    batu_bata:1800,
+    tembaga:8960,
+    plastik:950,
+    kaca:2500,
+    baja_ringan:7250,
+};
+const profilOptions = [
+    {name:'WF 200x100', w:25.4},
+    {name:'WF 300x150', w:44.1},
+    {name:'H-Beam 350x350', w:56.2},
+    {name:'INP 200', w:31.5}
+];
+
+let tbody = document.querySelector('#tableItems tbody');
+let chart;
+
+function addRow(data={}){
+    let idx = tbody.children.length + 1;
+    let tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td>${idx}</td>
+        <td>
+            <select class="mat" onchange="onMaterialChange(this)">
+                <option value="besi">Besi Bulat</option>
+                <option value="besi_profil">Besi Profil</option>
+                <option value="beton">Beton</option>
+                <option value="kayu">Kayu</option>
+                <option value="air">Air</option>
+                <option value="aluminium">Aluminium</option>
+                <option value="stainless">Stainless Steel</option>
+                <option value="tanah">Tanah</option>
+                <option value="batu_bata">Batu Bata</option>
+                <option value="tembaga">Tembaga</option>
+                <option value="plastik">Plastik</option>
+                <option value="kaca">Kaca</option>
+                <option value="baja_ringan">Baja Ringan</option>
+                </option>
+            </select>
+        </td>
+        <td class="paramCell small"></td>
+        <td class="inputCell"></td>
+        <td class="beratCell">0</td>
+        <td><button class="remove-btn" onclick="removeRow(this)" style="background:#e74c3c;color:white;padding:6px;border-radius:6px;border:none">Hapus</button></td>
+    `;
+    tbody.appendChild(tr);
+    // initialize with data if provided
+    let sel = tr.querySelector('.mat');
+    if(data.material) sel.value = data.material;
+    onMaterialChange(sel, data);
+}
+
+function onMaterialChange(selectEl, data={}){
+    let tr = selectEl.closest('tr');
+    let paramCell = tr.querySelector('.paramCell');
+    let inputCell = tr.querySelector('.inputCell');
+
+    paramCell.innerHTML = '';
+    inputCell.innerHTML = '';
+
+    if(selectEl.value === 'besi'){
+        paramCell.innerHTML = 'Ø (mm)';
+        inputCell.innerHTML = `<input type="number" class="d_val" placeholder="Diameter mm"> <input type="number" class="l_val" placeholder="Panjang m" style="margin-top:6px">`;
+        if(data.d) tr.querySelector('.d_val').value = data.d;
+        if(data.L) tr.querySelector('.l_val').value = data.L;
+
+    } else if(selectEl.value === 'besi_profil'){
+        paramCell.innerHTML = 'Profil (kg/m)';
+        let optHtml = profilOptions.map(o=>`<option value="${o.w}">${o.name} (${o.w} kg/m)</option>`).join('');
+        inputCell.innerHTML = `<select class="profil_sel">${optHtml}</select><input type="number" class="l_val" placeholder="Panjang m" style="margin-top:6px">`;
+        if(data.profil) tr.querySelector('.profil_sel').value = data.profil;
+        if(data.L) tr.querySelector('.l_val').value = data.L;
+
+    } else {
+        paramCell.innerHTML = 'P × L × T (m)';
+        inputCell.innerHTML = `<input type="number" class="p_val" placeholder="Panjang m"> <input type="number" class="l_val" placeholder="Lebar m" style="margin-top:6px"> <input type="number" class="t_val" placeholder="Tinggi m" style="margin-top:6px">`;
+        if(data.p) tr.querySelector('.p_val').value = data.p;
+        if(data.l) tr.querySelector('.l_val').value = data.l;
+        if(data.t) tr.querySelector('.t_val').value = data.t;
+    }
+}
+
+function removeRow(btn){
+    let tr = btn.closest('tr');
+    tr.remove();
+    // reindex
+    [...tbody.children].forEach((r,i)=> r.children[0].textContent = i+1);
+}
+
+function clearTable(){
+    tbody.innerHTML = '';
+    updateSummary([]);
+}
+
+function calculateRow(tr){
+    let mat = tr.querySelector('.mat').value;
+    let berat = 0;
+    if(mat === 'besi'){
+        let d = parseFloat(tr.querySelector('.d_val')?.value || 0) / 1000;
+        let L = parseFloat(tr.querySelector('.l_val')?.value || 0);
+        let vol = Math.PI * Math.pow(d/2,2) * L;
+        berat = vol * beratJenis.besi;
+    } else if(mat === 'besi_profil'){
+        let w = parseFloat(tr.querySelector('.profil_sel')?.value || 0);
+        let L = parseFloat(tr.querySelector('.l_val')?.value || 0);
+        berat = w * L;
+    } else {
+        let p = parseFloat(tr.querySelector('.p_val')?.value || 0);
+        let l = parseFloat(tr.querySelector('.l_val')?.value || 0);
+        let t = parseFloat(tr.querySelector('.t_val')?.value || 0);
+        let vol = p * l * t;
+        berat = vol * (beratJenis[mat] || 0);
+    }
+    tr.querySelector('.beratCell').textContent = berat.toFixed(2);
+    return { jenis: mat, berat };
+}
+
+function calculateAll(){
+    let rows = [...tbody.children];
+    if(rows.length === 0){ alert('Tambah baris dulu.'); return; }
+    let totals = {};
+    let totalAll = 0;
+    rows.forEach(tr=>{
+        let res = calculateRow(tr);
+        totals[res.jenis] = (totals[res.jenis] || 0) + res.berat;
+        totalAll += res.berat;
+    });
+    updateSummary(totals, totalAll);
+}
+
+function updateSummary(totals={}, totalAll=0){
+    document.getElementById('totalAll').textContent = totalAll.toFixed(2);
+    let breakdown = document.getElementById('breakdown');
+    breakdown.innerHTML = '';
+    Object.keys(totals).forEach(k=>{
+        let li = document.createElement('li');
+        li.textContent = `${k}: ${totals[k].toFixed(2)} kg`;
+        breakdown.appendChild(li);
+    });
+    updateChart(totals);
+}
+
+function updateChart(totals){
+    let ctx = document.getElementById('chartBreakdown').getContext('2d');
+    let labels = Object.keys(totals);
+    let data = labels.map(l=>totals[l]);
+
+    if(chart) chart.destroy();
+    chart = new Chart(ctx, {
+        type: 'pie',
+        data: { labels, datasets:[{ data, backgroundColor: generateColors(labels.length) }] },
+        options: { responsive:true }
+    });
+}
+
+function generateColors(n){
+    const base = [ 'rgba(0,119,204,0.7)', 'rgba(255,99,132,0.7)', 'rgba(255,205,86,0.7)', 'rgba(75,192,192,0.7)', 'rgba(153,102,255,0.7)' ];
+    let arr = [];
+    for(let i=0;i<n;i++) arr.push(base[i % base.length]);
+    return arr;
+}
+
+function toggleDarkMode(){ document.body.classList.toggle('dark-mode'); }
+
+// seed with 2 rows
+addRow({material:'besi', d:10, L:6});
+addRow({material:'beton', p:2, l:1.5, t:0.1});
+</script>
+</body>
+</html>
